@@ -9,7 +9,7 @@
       host: 'iitpkunofficial.aternos.me',
       port: 27449,
       username: 'NewHomeBot',
-      version: 'auto'
+      version: '1.21.1'
     })
 
     let reconnectAttempts = 0;

@@ -12,7 +12,7 @@ function createAndConnectBot() {
     host: 'iitpkunofficial.aternos.me',
     port: 27449,
     username: 'XPFarmBot',
-    version: 'auto'
+    version: '1.21.1'
   });
   
   setupBotHandlers();
