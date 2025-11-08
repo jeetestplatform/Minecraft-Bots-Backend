@@ -44,8 +44,8 @@ function getState(key) {
  * Initializes the Mineflayer bot with server connection details
  */
 const bot = mineflayer.createBot({
-  host: 'peacemp01.aternos.me',   // Server host (update if different)
-  port: 23506,                    // Server port (update if different)
+  host: 'iitpkunofficial.aternos.me',   // Server host (update if different)
+  port: 27449,                    // Server port (update if different)
   username: 'MineBot',            // Bot's username
   version: '1.21.4',              // Minecraft version (update if different)
   hideErrors: false,              // Show all errors for debugging

@@ -27,8 +27,8 @@ function getState(key) {
 }
 
 const bot = mineflayer.createBot({
-  host: 'peacemp01.aternos.me',
-  port: 23506,
+  host: 'iitpkunofficial.aternos.me',
+  port: 27449,
   username: 'MineBot',
   version: '1.21.4',
   hideErrors: false,
