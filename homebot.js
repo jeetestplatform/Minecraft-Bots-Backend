@@ -12,7 +12,7 @@ function createAndConnectBot() {
     host: 'iitpkunofficial.aternos.me',
     port: 27449,
     username: 'HomeBot',
-    version: '1.21.1'
+    version: '1.21.10'
   });
   
   setupBotHandlers();
