@@ -1689,17 +1689,27 @@ async function cancelAll(reason = 'cancel') {
 
 // Deterministic NL -> plan parser (no hallucinations)
 function normalizeBlockAlias(text) {
-  if (/cobble/.test(text)) return 'cobblestone';
-  if (/deepslate/.test(text)) return 'deepslate';
-  if (/netherrack/.test(text)) return 'netherrack';
-  if (/(oak|birch|spruce|jungle|acacia|dark_?oak|mangrove).*log/.test(text) || /\blog\b/.test(text)) return 'log';
-  if (/wood/.test(text)) return 'log';
-  if (/stone/.test(text)) return 'stone';
-  if (/dirt/.test(text)) return 'dirt';
-  if (/gravel/.test(text)) return 'gravel';
-  if (/sand/.test(text)) return 'sand';
-  if (/obsidian/.test(text)) return 'obsidian';
-  if (/quartz/.test(text)) return 'quartz';
+  const t = text.toLowerCase();
+  // Specific wood species
+  if (/oak\s+logs?/.test(t)) return 'oak_log';
+  if (/birch\s+logs?/.test(t)) return 'birch_log';
+  if (/spruce\s+logs?/.test(t)) return 'spruce_log';
+  if (/jungle\s+logs?/.test(t)) return 'jungle_log';
+  if (/acacia\s+logs?/.test(t)) return 'acacia_log';
+  if (/(dark\s*oak)\s+logs?/.test(t)) return 'dark_oak_log';
+  if (/mangrove\s+logs?/.test(t)) return 'mangrove_log';
+  if (/cherry\s+logs?/.test(t)) return 'cherry_log';
+  // Generic aliases
+  if (/cobble/.test(t)) return 'cobblestone';
+  if (/deepslate/.test(t)) return 'deepslate';
+  if (/netherrack/.test(t)) return 'netherrack';
+  if (/(^|\s)logs?\b/.test(t) || /wood/.test(t)) return 'log';
+  if (/stone/.test(t)) return 'stone';
+  if (/dirt/.test(t)) return 'dirt';
+  if (/gravel/.test(t)) return 'gravel';
+  if (/sand/.test(t)) return 'sand';
+  if (/obsidian/.test(t)) return 'obsidian';
+  if (/quartz/.test(t)) return 'quartz';
   return null;
 }
 
@@ -1818,13 +1828,53 @@ async function findBlocksByName(name, maxCount = 50) {
   }
 }
 
+function isMatchingBlockName(name, target) {
+  try {
+    if (!name || !target) return false;
+    if (target === 'log') return name.includes('log');
+    return name.includes(target);
+  } catch { return false; }
+}
+
+function neighbors6(pos) {
+  return [
+    pos.offset(1,0,0), pos.offset(-1,0,0),
+    pos.offset(0,1,0), pos.offset(0,-1,0),
+    pos.offset(0,0,1), pos.offset(0,0,-1)
+  ];
+}
+
+function gatherConnectedBlocks(startBlock, target, maxNodes = 256) {
+  const visited = new Set();
+  const q = [];
+  const out = [];
+  const key = (p) => `${p.x}|${p.y}|${p.z}`;
+  q.push(startBlock.position);
+  visited.add(key(startBlock.position));
+  while (q.length && out.length < maxNodes) {
+    const p = q.shift();
+    const b = bot.blockAt(p);
+    if (!b) continue;
+    if (!isMatchingBlockName(b.name, target) || !b.diggable || ['air','water','lava'].includes(b.name)) continue;
+    out.push(p);
+    for (const n of neighbors6(p)) {
+      const k = key(n);
+      if (!visited.has(k)) {
+        visited.add(k);
+        q.push(n);
+      }
+    }
+  }
+  return out;
+}
+
 async function runBlockMiningFor(blockName, seconds) {
   try {
     setupPathfinder();
     const until = Date.now() + seconds * 1000;
     while (Date.now() < until && !getState('stopRequested')) {
-      const blocks = await findBlocksByName(blockName, 30);
-      if (blocks.length === 0) {
+      const found = await findBlocksByName(blockName, 30);
+      if (found.length === 0) {
         // random explore small offset if none found
         const rnd = new Vec3(Math.random()*20-10, 0, Math.random()*20-10);
         const explore = bot.entity.position.clone().add(rnd); explore.y = bot.entity.position.y;
@@ -1832,13 +1882,21 @@ async function runBlockMiningFor(blockName, seconds) {
         await wait(500);
         continue;
       }
-      for (const b of blocks) {
+      // Take nearest block and mine the entire connected cluster before moving on
+      const startBlock = found[0];
+      const cluster = gatherConnectedBlocks(startBlock, blockName, 256);
+      // Sort by distance to reduce pathing
+      cluster.sort((a,b) => distanceTo(bot.entity.position, a) - distanceTo(bot.entity.position, b));
+      let minedCount = 0;
+      for (const pos of cluster) {
         if (Date.now() >= until || getState('stopRequested')) break;
-        const reached = await goToPosition(b.position, { range: 3, maxRetries: 3 });
+        const reached = await goToPosition(pos, { range: 3, maxRetries: 4 });
         if (!reached) continue;
-        await mineBlock(b.position);
-        if (Math.random() < 0.3) await collectNearbyItems();
+        const ok = await mineBlock(pos);
+        if (ok) minedCount++;
+        if (minedCount % 3 === 0) await collectNearbyItems();
       }
+      await collectNearbyItems();
     }
     await collectNearbyItems();
   } catch (e) {
