@@ -1552,7 +1552,7 @@ async function callGemini(prompt, schemaDescription) {
   const sys = `You are MineBot, a Minecraft command planner.\n` +
     `STRICT RULES:\n` +
     `- You MUST output ONLY compact JSON matching the schema: ${schemaDescription}.\n` +
-    `- Use ONLY these action types: collect_food, deliver_to_player, mine_ore, follow_player, stop, say.\n` +
+    `- Use ONLY these action types: collect_food, deliver_to_player, mine_ore, mine_block, assist_combat, follow_player, stop, say.\n` +
     `- Do NOT invent missing details or add extra fields.\n` +
     `- If the user instruction is unclear, output {"actions":[{"type":"say","message":"unknown command"}]}.\n` +
     `- No prose, no code fences, JSON only.`;
@@ -1633,6 +1633,14 @@ async function executePlan(username, plan) {
     } else if (type === 'mine_ore') {
       const ore = (action.ore || 'iron').toLowerCase();
       await runOreMiningFor(ore === 'coal' ? 'coal' : 'iron', Math.min(Math.max(Number(action.seconds || 120), 20), 1800));
+    } else if (type === 'mine_block') {
+      const block = String(action.block || 'stone');
+      const seconds = Math.min(Math.max(Number(action.seconds || 120), 20), 1800);
+      await runBlockMiningFor(block, seconds);
+    } else if (type === 'assist_combat') {
+      const target = action.player || username;
+      const seconds = Math.min(Math.max(Number(action.seconds || 90), 10), 900);
+      await assistCombatFor(target, seconds);
     } else if (type === 'follow_player') {
       const target = action.player || username;
       await followPlayerFor(target, Math.min(Math.max(Number(action.seconds || 60), 10), 900));
@@ -1680,6 +1688,21 @@ async function cancelAll(reason = 'cancel') {
 }
 
 // Deterministic NL -> plan parser (no hallucinations)
+function normalizeBlockAlias(text) {
+  if (/cobble/.test(text)) return 'cobblestone';
+  if (/deepslate/.test(text)) return 'deepslate';
+  if (/netherrack/.test(text)) return 'netherrack';
+  if (/(oak|birch|spruce|jungle|acacia|dark_?oak|mangrove).*log/.test(text) || /\blog\b/.test(text)) return 'log';
+  if (/wood/.test(text)) return 'log';
+  if (/stone/.test(text)) return 'stone';
+  if (/dirt/.test(text)) return 'dirt';
+  if (/gravel/.test(text)) return 'gravel';
+  if (/sand/.test(text)) return 'sand';
+  if (/obsidian/.test(text)) return 'obsidian';
+  if (/quartz/.test(text)) return 'quartz';
+  return null;
+}
+
 function parseDurationSeconds(text) {
   const mSec = text.match(/\b(\d+)\s*sec(?:ond)?s?\b/);
   if (mSec) return Math.min(Math.max(parseInt(mSec[1], 10), 5), 3600);
@@ -1714,12 +1737,23 @@ function parseCommandToPlan(natural, requester) {
       actions.push({ type: 'collect_food', seconds });
       continue;
     }
-    // mine ore
-    if (/\bmine\b/.test(c) && /(iron|coal)/.test(c)) {
-      const ore = /iron/.test(c) ? 'iron' : 'coal';
-      const seconds = parseDurationSeconds(c) ?? 120;
-      actions.push({ type: 'mine_ore', ore, seconds });
-      continue;
+    // mine ore or specific block
+    if (/\bmine\b/.test(c)) {
+      if (/(iron|coal)/.test(c)) {
+        const ore = /iron/.test(c) ? 'iron' : 'coal';
+        const seconds = parseDurationSeconds(c) ?? 120;
+        actions.push({ type: 'mine_ore', ore, seconds });
+        // If explicitly "for me" or "and give me" present, append deliver
+        if (/\bfor\s+me\b/.test(c) || /give\s+me/.test(c)) actions.push({ type: 'deliver_to_player', player: requester });
+        continue;
+      }
+      const alias = normalizeBlockAlias(c);
+      if (alias) {
+        const seconds = parseDurationSeconds(c) ?? 120;
+        actions.push({ type: 'mine_block', block: alias, seconds });
+        if (/\bfor\s+me\b/.test(c) || /give\s+me/.test(c)) actions.push({ type: 'deliver_to_player', player: requester });
+        continue;
+      }
     }
     // deliver / give to X | me
     if (/(deliver|give|hand)\s+/.test(c)) {
@@ -1728,6 +1762,12 @@ function parseCommandToPlan(natural, requester) {
       if (mTo) player = pickPlayer(mTo[1], requester);
       if (/\bme\b/.test(c)) player = requester;
       actions.push({ type: 'deliver_to_player', player });
+      continue;
+    }
+    // assist in combat / protect / defend
+    if (/(help|assist|protect|defend).*\b(mob|mobs|me)\b/.test(c)) {
+      const seconds = parseDurationSeconds(c) ?? 90;
+      actions.push({ type: 'assist_combat', player: requester, seconds });
       continue;
     }
     // follow X | me
@@ -1751,6 +1791,78 @@ function parseCommandToPlan(natural, requester) {
   // If no matches, return a neutral say
   if (actions.length === 0) return { actions: [{ type: 'say', message: 'unknown command' }] };
   return { actions };
+}
+
+// Helpers used by AI executor
+async function findBlocksByName(name, maxCount = 50) {
+  const blocks = [];
+  const start = bot.entity.position.clone();
+  try {
+    for (let x = -SEARCH_RADIUS; x <= SEARCH_RADIUS; x += 3) {
+      for (let y = -Math.floor(SEARCH_RADIUS / 2); y <= Math.floor(SEARCH_RADIUS / 2); y += 3) {
+        for (let z = -SEARCH_RADIUS; z <= SEARCH_RADIUS; z += 3) {
+          if (blocks.length >= maxCount) break;
+          const pos = start.offset(x, y, z);
+          const b = bot.blockAt(pos);
+          if (b && b.name && b.name.includes(name) && b.diggable && !['air','water','lava'].includes(b.name)) {
+            blocks.push(b);
+          }
+        }
+      }
+    }
+    blocks.sort((a,b) => distanceTo(bot.entity.position, a.position) - distanceTo(bot.entity.position, b.position));
+    return blocks;
+  } catch (e) {
+    logDebug('findBlocksByName error: ' + e.message);
+    return [];
+  }
+}
+
+async function runBlockMiningFor(blockName, seconds) {
+  try {
+    setupPathfinder();
+    const until = Date.now() + seconds * 1000;
+    while (Date.now() < until && !getState('stopRequested')) {
+      const blocks = await findBlocksByName(blockName, 30);
+      if (blocks.length === 0) {
+        // random explore small offset if none found
+        const rnd = new Vec3(Math.random()*20-10, 0, Math.random()*20-10);
+        const explore = bot.entity.position.clone().add(rnd); explore.y = bot.entity.position.y;
+        await goToPosition(explore, { range: 5, maxRetries: 3 });
+        await wait(500);
+        continue;
+      }
+      for (const b of blocks) {
+        if (Date.now() >= until || getState('stopRequested')) break;
+        const reached = await goToPosition(b.position, { range: 3, maxRetries: 3 });
+        if (!reached) continue;
+        await mineBlock(b.position);
+        if (Math.random() < 0.3) await collectNearbyItems();
+      }
+    }
+    await collectNearbyItems();
+  } catch (e) {
+    logDebug('runBlockMiningFor error: ' + e.message);
+  }
+}
+
+async function assistCombatFor(username, seconds) {
+  try {
+    setupPathfinder();
+    const reached = await navigateToPlayer(username, { timeoutMs: 60000 });
+    const until = Date.now() + seconds * 1000;
+    while (Date.now() < until && !getState('stopRequested')) {
+      await dealWithMobs();
+      await wait(400);
+      // Stay near player if they moved
+      const ent = getPlayerEntity(username);
+      if (ent?.position) {
+        await goToPosition(ent.position, { range: 3, maxRetries: 2 });
+      }
+    }
+  } catch (e) {
+    logDebug('assistCombatFor error: ' + e.message);
+  }
 }
 
 // Helpers used by AI executor
