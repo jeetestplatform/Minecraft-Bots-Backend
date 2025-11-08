@@ -12,7 +12,7 @@ function createAndConnectBot() {
     host: 'iitpkunofficial.aternos.me',
     port: 27449,
     username: 'NetherBot',
-    version: '1.21.4'
+    version: 'auto'
   });
   
   setupBotHandlers();

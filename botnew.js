@@ -30,7 +30,7 @@ const bot = mineflayer.createBot({
   host: 'iitpkunofficial.aternos.me',
   port: 27449,
   username: 'MineBot',
-  version: '1.21.4',
+  version: 'auto',
   hideErrors: false,
   checkTimeoutInterval: 60000,
   keepAlive: true,
