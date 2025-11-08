@@ -1,17 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Install root deps (bots)
-if [ -f package-lock.json ]; then
-  npm ci --omit=dev
-else
-  npm install --omit=dev
-fi
+# Always install latest deps (including git refs) to avoid stale locks on Render
+npm install --omit=dev
 
 # Install backend service deps
 cd backend
-if [ -f package-lock.json ]; then
-  npm ci --omit=dev
-else
-  npm install --omit=dev
-fi
+npm install --omit=dev
