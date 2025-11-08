@@ -1540,14 +1540,18 @@ process.on('unhandledRejection', (err) => {
  * Google Gemini integration and AI task execution
  */
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-1.5-pro';
+// Strictly use the requested model
+const GEMINI_MODEL = 'gemini-2.0-flash-exp';
 
 async function callGemini(prompt, schemaDescription) {
   if (!GEMINI_API_KEY) throw new Error('GEMINI_API_KEY not set');
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
+
+  const base = 'https://generativelanguage.googleapis.com';
   const sys = `You are MineBot, a Minecraft assistant controlling a mineflayer bot.\n` +
     `Output ONLY compact JSON matching the following schema: ${schemaDescription}.\n` +
     `Do not include explanations.`;
+
+  // Valid generationConfig only (no response_mime_type)
   const body = {
     contents: [
       { role: 'user', parts: [{ text: sys + '\n\nUser: ' + prompt }] }
@@ -1555,22 +1559,57 @@ async function callGemini(prompt, schemaDescription) {
     generationConfig: {
       temperature: 0.2,
       topP: 0.9,
-      response_mime_type: 'application/json'
+      topK: 40,
+      maxOutputTokens: 512
     }
   };
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
-  });
-  if (!res.ok) {
-    const t = await res.text();
-    throw new Error('Gemini HTTP ' + res.status + ': ' + t.slice(0, 500));
+
+  // Strictly use gemini-2.0-flash-exp, but try both v1 and v1beta endpoints for compatibility
+  const urls = [
+    `${base}/v1/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
+    `${base}/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`
+  ];
+
+  let lastErr = null;
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+
+      if (!res.ok) {
+        const t = await res.text();
+        lastErr = new Error('Gemini HTTP ' + res.status + ': ' + t.slice(0, 500));
+        // On 404/400, attempt the other endpoint version
+        if (res.status === 404 || res.status === 400) continue;
+        throw lastErr;
+      }
+
+      const data = await res.json();
+      const parts = data?.candidates?.[0]?.content?.parts || [];
+      const text = parts.map(p => p?.text).filter(Boolean).join('\n');
+      if (!text) throw new Error('No candidates from Gemini');
+
+      // Parse JSON from plain text; tolerate wrappers by extracting first JSON object
+      try {
+        return JSON.parse(text);
+      } catch {
+        const startIdx = text.indexOf('{');
+        const endIdx = text.lastIndexOf('}');
+        if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
+          const maybeJson = text.slice(startIdx, endIdx + 1);
+          return JSON.parse(maybeJson);
+        }
+        throw new Error('Gemini returned non-JSON: ' + text);
+      }
+    } catch (e) {
+      lastErr = e;
+    }
   }
-  const data = await res.json();
-  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!text) throw new Error('No candidates from Gemini');
-  try { return JSON.parse(text); } catch (_) { throw new Error('Gemini returned non-JSON: ' + text); }
+
+  throw lastErr || new Error('Gemini call failed');
 }
 
 // Execute a structured plan from Gemini
