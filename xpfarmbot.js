@@ -81,23 +81,8 @@ function setupBotHandlers() {
     }
 
     // Special handling for .Vikram8515
-    if (username === '.Vikram8515' && normalizedMessage === 'teleport me to xpfarm') {
-      console.log(`Special case: Home teleport request from .Vikram8515. Sending direct /tpahere...`);
-      try {
-        // Use explicit username for .Vikram8515
-        bot.chat('/tpahere .Vikram8515');
-        console.log('Successfully sent /tpahere request to .Vikram8515 (explicit username)');
-        setTimeout(() => {
-          bot.chat('/tpcancel');
-          console.log('Sent /tpcancel to clear pending TPA request');
-        }, 20000);
-      } catch (err) {
-        console.log('Error sending /tpahere to .Vikram8515:', err.message);
-      }
-    }
-    // Handle teleport me to xpfarm from any other player
-    else if (normalizedMessage === 'teleport me to xpfarm') {
-      console.log(`Home teleport request from ${username}. Sending /tpahere to ${username}...`);
+    if (normalizedMessage === 'teleport me to xpfarm') {
+      console.log(`Home teleport request from ${username}. Sending /tpahere...`);
       try {
         bot.chat(`/tpahere ${username}`);
         console.log(`Successfully sent /tpahere request to ${username}`);
@@ -108,13 +93,12 @@ function setupBotHandlers() {
       } catch (err) {
         console.log(`Error sending /tpahere to ${username}:`, err.message);
       }
-    } 
-    // Add specific support for .Vikram8515 with another command
+    }
     else if (normalizedMessage === 'hey homebot, tp vikram') {
-      console.log(`Teleport request matched for Vikram. Sending /tpahere to .Vikram8515...`);
+      console.log(`Teleport request matched for ${username}. Sending /tpahere...`);
       try {
-        bot.chat('/tpahere .Vikram8515');
-        console.log('Successfully sent /tpahere request to .Vikram8515');
+        bot.chat(`/tpahere ${username}`);
+        console.log('Successfully sent /tpahere request');
         setTimeout(() => {
           bot.chat('/tpcancel');
           console.log('Sent /tpcancel to clear pending TPA request');
@@ -124,10 +108,10 @@ function setupBotHandlers() {
       }
     }
     else if (normalizedMessage === 'hey homebot, tp me') {
-      console.log(`Teleport request matched from ${username}. Sending /tpahere to Chaitanya1290...`);
+      console.log(`Teleport request matched from ${username}. Sending /tpahere...`);
       try {
-        bot.chat('/tpahere Chaitanya1290');
-        console.log('Successfully sent /tpahere request to Chaitanya1290');
+        bot.chat(`/tpahere ${username}`);
+        console.log('Successfully sent /tpahere request');
         setTimeout(() => {
           bot.chat('/tpcancel');
           console.log('Sent /tpcancel to clear pending TPA request');
@@ -136,10 +120,10 @@ function setupBotHandlers() {
         console.log('Error sending /tpahere:', err.message);
       }
     } else if (normalizedMessage === 'hey homebot, tp sujal') {
-      console.log(`Teleport request matched from ${username}. Sending /tpahere to Sujal1002...`);
+      console.log(`Teleport request matched from ${username}. Sending /tpahere...`);
       try {
-        bot.chat('/tpahere Sujal1002');
-        console.log('Successfully sent /tpahere request to Sujal1002');
+        bot.chat(`/tpahere ${username}`);
+        console.log('Successfully sent /tpahere request');
         setTimeout(() => {
           bot.chat('/tpcancel');
           console.log('Sent /tpcancel to clear pending TPA request');
@@ -148,10 +132,10 @@ function setupBotHandlers() {
         console.log('Error sending /tpahere:', err.message);
       }
     } else if (normalizedMessage === 'xpfarmbot teleport here' || normalizedMessage === 'xpfarmbot teleport here') {
-      console.log(`Teleport request matched from ${username}. Sending /tpa to Chaitanya1290...`);
+      console.log(`Teleport request matched from ${username}. Sending /tpa...`);
       try {
-        bot.chat('/tpa Chaitanya1290');
-        console.log('Successfully sent /tpa request to Chaitanya1290');
+        bot.chat(`/tpa ${username}`);
+        console.log('Successfully sent /tpa request');
         setTimeout(() => {
           bot.chat('/tpcancel');
           console.log('Sent /tpcancel to clear pending TPA request');
@@ -159,14 +143,10 @@ function setupBotHandlers() {
       } catch (err) {
         console.log('Error sending /tpa:', err.message);
       }
-    } else if (normalizedMessage.includes('you have already sent chaitanya1290 a teleport request')) {
+    } else if (normalizedMessage.includes('you have already sent') && normalizedMessage.includes('teleport request')) {
       console.log('Detected pending TPA request. Canceling it...');
       bot.chat('/tpcancel');
       console.log('Sent /tpcancel to clear existing request');
-      setTimeout(() => {
-        bot.chat('/tpahere Chaitanya1290');
-        console.log('Retried /tpahere request to Chaitanya1290');
-      }, 1000);
     } else {
       console.log(`No match. Expected commands: "hey homebot, tp me", "xpfarmbot teleport here", "teleport me to xpfarm", or "hey homebot, tp vikram". Got: "${normalizedMessage}"`);
     }

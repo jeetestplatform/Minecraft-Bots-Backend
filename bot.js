@@ -78,36 +78,24 @@
       // Handle "teleport me" command
       if (normalizedMessage === 'teleport me') {
         console.log(`[TELEPORT DEBUG] Player requested teleport: "${username}"`);
-        
-        // CRITICAL FIX: Special case for .Vikram8515
-        if (username.includes('Vikram')) {
-          console.log('[TELEPORT] Detected Vikram user, using hardcoded username');
-          // Directly send the command with the hardcoded username
-          bot.chat('/tpahere .Vikram8515');
-          console.log('[TELEPORT] Sent hardcoded teleport command: /tpahere .Vikram8515');
-        } else {
-          // For all other players, use their username from the chat event
-          console.log(`[TELEPORT] Using chat username: "${username}"`);
-          bot.chat(`/tpahere ${username}`);
-          console.log(`[TELEPORT] Sent command: /tpahere ${username}`);
-        }
-        
-        // Set a timeout to cancel any pending teleport request
+        // Always use the exact chat username (supports Bedrock '.' prefix)
+        bot.chat(`/tpahere ${username}`);
+        console.log(`[TELEPORT] Sent command: /tpahere ${username}`);
+        // Cancel any pending request after 20s
         setTimeout(() => {
           bot.chat('/tpcancel');
           console.log('[TELEPORT] Sent /tpcancel to clear pending request');
         }, 20000);
-        
         return;
       }
       
       // Handle other commands
       if (normalizedMessage === 'hey bot, tp me') {
-        handleTeleport(bot, username, 'Chaitanya1290');
+        handleTeleport(bot, username, username);
       } else if (normalizedMessage === 'bot tp me') {
-        handleTeleport(bot, username, 'Sujal1002');
+        handleTeleport(bot, username, username);
       } else if (normalizedMessage === 'teleport here') {
-        handleTeleportHere(bot, 'Chaitanya1290');
+        handleTeleportHere(bot, username);
       }
     })
 

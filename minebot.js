@@ -1446,13 +1446,13 @@ bot.on('chat', async (username, message) => {
       logDebug('Drop inventory command received');
       await dropInventory();
     } else if (cmd === 'hey mine bot, tp me') {
-      chat('/tpahere Chaitanya1290');
+      chat(`/tpahere ${username}`);
       setTimeout(() => chat('/tpcancel'), 20000);
-      logDebug('Teleport request sent to Chaitanya1290');
+      logDebug(`Teleport request sent to ${username}`);
     } else if (cmd === 'minebot teleport here') {
-      chat('/tpa Chaitanya1290');
+      chat(`/tpa ${username}`);
       setTimeout(() => chat('/tpcancel'), 20000);
-      logDebug('Teleport request sent to bot location');
+      logDebug(`Teleport-to-player request sent to ${username}`);
     } else if (cmd === 'where are you') {
       const pos = bot.entity.position;
       chat(`I’m at (${Math.floor(pos.x)}, ${Math.floor(pos.y)}, ${Math.floor(pos.z)})`);
