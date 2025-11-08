@@ -1547,9 +1547,13 @@ async function callGemini(prompt, schemaDescription) {
   if (!GEMINI_API_KEY) throw new Error('GEMINI_API_KEY not set');
 
   const base = 'https://generativelanguage.googleapis.com';
-  const sys = `You are MineBot, a Minecraft assistant controlling a mineflayer bot.\n` +
-    `Output ONLY compact JSON matching the following schema: ${schemaDescription}.\n` +
-    `Do not include explanations.`;
+  const sys = `You are MineBot, a Minecraft command planner.\n` +
+    `STRICT RULES:\n` +
+    `- You MUST output ONLY compact JSON matching the schema: ${schemaDescription}.\n` +
+    `- Use ONLY these action types: collect_food, deliver_to_player, mine_ore, follow_player, stop, say.\n` +
+    `- Do NOT invent missing details or add extra fields.\n` +
+    `- If the user instruction is unclear, output {"actions":[{"type":"say","message":"unknown command"}]}.\n` +
+    `- No prose, no code fences, JSON only.`;
 
   // Valid generationConfig only (no response_mime_type)
   const body = {
@@ -1557,10 +1561,10 @@ async function callGemini(prompt, schemaDescription) {
       { role: 'user', parts: [{ text: sys + '\n\nUser: ' + prompt }] }
     ],
     generationConfig: {
-      temperature: 0.2,
-      topP: 0.9,
-      topK: 40,
-      maxOutputTokens: 512
+      temperature: 0.0,
+      topP: 0.0,
+      topK: 1,
+      maxOutputTokens: 256
     }
   };
 
@@ -1643,15 +1647,95 @@ async function executePlan(username, plan) {
 }
 
 async function handleAICommand(username, naturalText) {
+  // Deterministic, rule-based parsing first (no LLM)
+  const planFromRules = parseCommandToPlan(naturalText, username);
+  if (planFromRules && Array.isArray(planFromRules.actions) && planFromRules.actions.length) {
+    await executePlan(username, planFromRules);
+    return;
+  }
+  // Fallback to Gemini with STRICT low-variance settings
   chat(`Got it, ${username}. Working on it.`);
   const schema = '{"actions": [{"type": "collect_food"|"deliver_to_player"|"mine_ore"|"follow_player"|"stop"|"say", "seconds"?: number, "ore"?: "iron"|"coal", "player"?: string, "message"?: string}] }';
   const plan = await callGemini(
-    `Player ${username} said: ${naturalText}\n` +
-    `Current capabilities: collect_food (hunt nearby animals and pick up drops); deliver_to_player (navigate to player and give food items); mine_ore (iron or coal); follow_player; stop; say.\n` +
-    `Prefer delivering to the requester unless another player name is given. If the user asks to give items, use deliver_to_player.`,
+    `Instruction: ${naturalText}\n` +
+    `Allowed actions only. If unclear, return say("unknown command").`,
     schema
   );
   await executePlan(username, plan);
+}
+
+// Deterministic NL -> plan parser (no hallucinations)
+function parseDurationSeconds(text) {
+  const mSec = text.match(/\b(\d+)\s*sec(?:ond)?s?\b/);
+  if (mSec) return Math.min(Math.max(parseInt(mSec[1], 10), 5), 3600);
+  const mMin = text.match(/\b(\d+)\s*min(?:ute)?s?\b/);
+  if (mMin) return Math.min(Math.max(parseInt(mMin[1], 10) * 60, 5), 3600);
+  const mNum = text.match(/\bfor\s+(\d+)\b/);
+  if (mNum) return Math.min(Math.max(parseInt(mNum[1], 10), 5), 3600);
+  return null;
+}
+
+function pickPlayer(raw, requester) {
+  const s = raw.trim().toLowerCase();
+  if (s === 'me' || s === 'my' || s === 'myself') return requester;
+  return raw.trim();
+}
+
+function parseCommandToPlan(natural, requester) {
+  if (!natural || typeof natural !== 'string') return null;
+  const text = natural.toLowerCase();
+  const clauses = text.split(/\s*(?:then|and then|and)\s+/).filter(Boolean);
+  const actions = [];
+
+  for (const c of clauses) {
+    // stop
+    if (/\bstop\b/.test(c)) {
+      actions.push({ type: 'stop' });
+      continue;
+    }
+    // collect food
+    if (/(collect|get|gather)\s+(food|meat)/.test(c)) {
+      const seconds = parseDurationSeconds(c) ?? 60;
+      actions.push({ type: 'collect_food', seconds });
+      continue;
+    }
+    // mine ore
+    if (/\bmine\b/.test(c) && /(iron|coal)/.test(c)) {
+      const ore = /iron/.test(c) ? 'iron' : 'coal';
+      const seconds = parseDurationSeconds(c) ?? 120;
+      actions.push({ type: 'mine_ore', ore, seconds });
+      continue;
+    }
+    // deliver / give to X | me
+    if (/(deliver|give|hand)\s+/.test(c)) {
+      let player = requester;
+      const mTo = c.match(/\bto\s+([\w\.-]{1,32})/);
+      if (mTo) player = pickPlayer(mTo[1], requester);
+      if (/\bme\b/.test(c)) player = requester;
+      actions.push({ type: 'deliver_to_player', player });
+      continue;
+    }
+    // follow X | me
+    if (/\bfollow\b/.test(c)) {
+      let player = requester;
+      const mTo = c.match(/\bfollow\s+([\w\.-]{1,32})/);
+      if (mTo) player = pickPlayer(mTo[1], requester);
+      if (/\bme\b/.test(c)) player = requester;
+      const seconds = parseDurationSeconds(c) ?? 60;
+      actions.push({ type: 'follow_player', player, seconds });
+      continue;
+    }
+    // say
+    const mSay = c.match(/\bsay\s+(.+)/);
+    if (mSay) {
+      actions.push({ type: 'say', message: mSay[1].trim().slice(0, 140) });
+      continue;
+    }
+  }
+
+  // If no matches, return a neutral say
+  if (actions.length === 0) return { actions: [{ type: 'say', message: 'unknown command' }] };
+  return { actions };
 }
 
 // Helpers used by AI executor
