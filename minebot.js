@@ -47,7 +47,7 @@ const bot = mineflayer.createBot({
   host: 'iitpkunofficial.aternos.me',   // Server host (update if different)
   port: 27449,                    // Server port (update if different)
   username: 'MineBot',            // Bot's username
-  version: '1.21.10',             // Pinned Minecraft version
+  version: '1.21.8',              // Pinned Minecraft version
   hideErrors: false,              // Show all errors for debugging
   checkTimeoutInterval: 120000,   // Increase to check connection every 2 minutes
   keepAlive: true,                // Keep connection alive

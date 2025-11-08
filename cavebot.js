@@ -12,7 +12,7 @@ function createAndConnectBot() {
     host: 'iitpkunofficial.aternos.me',
     port: 27449,
     username: 'CaveBot',
-    version: '1.21.10'
+    version: '1.21.8'
   });
   
   setupBotHandlers();
