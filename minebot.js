@@ -1345,6 +1345,24 @@ bot.on('chat', async (username, message) => {
   const cmd = message.toLowerCase().trim();
   logDebug(`Chat command received from ${username}: ${cmd}`);
 
+  // Gemini-powered natural language commands for MineBot only
+  if (message.trim().startsWith('#')) {
+    if (getState('isProcessingCommand')) {
+      chat('Busy. Please wait or use "!stop mining".');
+      return;
+    }
+    setState('isProcessingCommand', true);
+    try {
+      await handleAICommand(username, message.trim().slice(1).trim());
+    } catch (err) {
+      console.error('AI command error:', err);
+      chat('Sorry, I could not understand that.');
+    } finally {
+      setState('isProcessingCommand', false);
+    }
+    return;
+  }
+
   if (cmd === '!stop mining') {
     setState('stopRequested', true);
     bot.pathfinder.setGoal(null);
@@ -1517,6 +1535,174 @@ process.on('unhandledRejection', (err) => {
   console.error('Unhandled rejection:', err);
   logDebug('Unhandled promise rejection: ' + err.message);
 });
+
+/**
+ * Google Gemini integration and AI task execution
+ */
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-1.5-pro';
+
+async function callGemini(prompt, schemaDescription) {
+  if (!GEMINI_API_KEY) throw new Error('GEMINI_API_KEY not set');
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
+  const sys = `You are MineBot, a Minecraft assistant controlling a mineflayer bot.\n` +
+    `Output ONLY compact JSON matching the following schema: ${schemaDescription}.\n` +
+    `Do not include explanations.`;
+  const body = {
+    contents: [
+      { role: 'user', parts: [{ text: sys + '\n\nUser: ' + prompt }] }
+    ],
+    generationConfig: {
+      temperature: 0.2,
+      topP: 0.9,
+      response_mime_type: 'application/json'
+    }
+  };
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  if (!res.ok) {
+    const t = await res.text();
+    throw new Error('Gemini HTTP ' + res.status + ': ' + t.slice(0, 500));
+  }
+  const data = await res.json();
+  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) throw new Error('No candidates from Gemini');
+  try { return JSON.parse(text); } catch (_) { throw new Error('Gemini returned non-JSON: ' + text); }
+}
+
+// Execute a structured plan from Gemini
+async function executePlan(username, plan) {
+  if (!plan || !Array.isArray(plan.actions)) throw new Error('Invalid plan');
+  for (const action of plan.actions) {
+    if (getState('stopRequested')) break;
+    const type = action.type;
+    if (type === 'collect_food') {
+      const seconds = Math.min(Math.max(Number(action.seconds || 60), 10), 900);
+      await runCollectFoodFor(seconds);
+    } else if (type === 'deliver_to_player') {
+      const target = action.player || username;
+      await deliverFoodToPlayer(target);
+    } else if (type === 'mine_ore') {
+      const ore = (action.ore || 'iron').toLowerCase();
+      await runOreMiningFor(ore === 'coal' ? 'coal' : 'iron', Math.min(Math.max(Number(action.seconds || 120), 20), 1800));
+    } else if (type === 'follow_player') {
+      const target = action.player || username;
+      await followPlayerFor(target, Math.min(Math.max(Number(action.seconds || 60), 10), 900));
+    } else if (type === 'stop') {
+      setState('stopRequested', true);
+      Object.keys(botState).forEach(k => k.startsWith('is') && setState(k, false));
+      chat('Stopping as requested.');
+    } else if (type === 'say') {
+      if (action.message) chat(String(action.message));
+    } else {
+      logDebug('Unknown action in plan: ' + JSON.stringify(action));
+    }
+  }
+}
+
+async function handleAICommand(username, naturalText) {
+  chat(`Got it, ${username}. Working on it.`);
+  const schema = '{"actions": [{"type": "collect_food"|"deliver_to_player"|"mine_ore"|"follow_player"|"stop"|"say", "seconds"?: number, "ore"?: "iron"|"coal", "player"?: string, "message"?: string}] }';
+  const plan = await callGemini(
+    `Player ${username} said: ${naturalText}\n` +
+    `Current capabilities: collect_food (hunt nearby animals and pick up drops); deliver_to_player (navigate to player and give food items); mine_ore (iron or coal); follow_player; stop; say.\n` +
+    `Prefer delivering to the requester unless another player name is given. If the user asks to give items, use deliver_to_player.`,
+    schema
+  );
+  await executePlan(username, plan);
+}
+
+// Helpers used by AI executor
+async function runCollectFoodFor(seconds) {
+  if (getState('isCollectingFood')) return;
+  setState('isCollectingFood', true);
+  const timer = setTimeout(() => setState('isCollectingFood', false), seconds * 1000);
+  try {
+    await collectFood();
+  } finally {
+    clearTimeout(timer);
+    setState('isCollectingFood', false);
+  }
+}
+
+async function runOreMiningFor(ore, seconds) {
+  const key = ore === 'coal' ? 'isMiningCoal' : 'isMiningIron';
+  if (getState(key)) return;
+  setState(key, true);
+  const stopT = setTimeout(() => setState(key, false), seconds * 1000);
+  try {
+    await mineSpecificOre(ore);
+  } finally {
+    clearTimeout(stopT);
+    setState(key, false);
+  }
+}
+
+function getPlayerEntity(username) {
+  const p = bot.players[username];
+  return p && p.entity ? p.entity : null;
+}
+
+async function navigateToPlayer(username, opts = {}) {
+  const deadline = Date.now() + (opts.timeoutMs || 60000);
+  while (Date.now() < deadline && !getState('stopRequested')) {
+    const ent = getPlayerEntity(username);
+    if (ent?.position) {
+      const ok = await goToPosition(ent.position, { range: 2, maxRetries: 4 });
+      if (ok) return true;
+    }
+    await wait(800);
+  }
+  return false;
+}
+
+async function deliverFoodToPlayer(username) {
+  setupPathfinder();
+  const reached = await navigateToPlayer(username, { timeoutMs: 90000 });
+  if (!reached) {
+    chat(`Could not reach ${username} to deliver items.`);
+    return;
+  }
+  const foodPrefixes = ['beef', 'porkchop', 'mutton', 'chicken', 'rabbit', 'cooked_beef', 'cooked_porkchop', 'cooked_mutton', 'cooked_chicken', 'cooked_rabbit'];
+  const items = bot.inventory.items().filter(it => foodPrefixes.some(p => it.name.includes(p)));
+  if (items.length === 0) {
+    chat(`I have no food items to give right now.`);
+    return;
+  }
+  for (const it of items) {
+    try {
+      await bot.tossStack(it);
+      await wait(200);
+    } catch (e) {
+      logDebug('Toss error: ' + e.message);
+    }
+  }
+  chat(`Dropped ${items.length} stacks for ${username}.`);
+}
+
+async function followPlayerFor(username, seconds) {
+  try {
+    setupPathfinder();
+    const ent = getPlayerEntity(username);
+    if (!ent) {
+      chat(`I can’t see ${username} to follow.`);
+      return;
+    }
+    const goal = new GoalFollow(ent, 2);
+    bot.pathfinder.setGoal(goal, true);
+    const until = Date.now() + seconds * 1000;
+    while (Date.now() < until && !getState('stopRequested')) {
+      await wait(500);
+    }
+  } catch (e) {
+    logDebug('Follow error: ' + e.message);
+  } finally {
+    bot.pathfinder.setGoal(null);
+  }
+}
 
 /**
  * Handles uncaught exceptions to prevent crashes
