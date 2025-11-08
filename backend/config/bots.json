@@ -1,0 +1,11 @@
+[
+  { "id": "bot",           "label": "General Bot",      "script": "bot.js" },
+  { "id": "botnew",        "label": "Mining Pro Bot",  "script": "botnew.js" },
+  { "id": "minebot",       "label": "Mine Bot",        "script": "minebot.js" },
+  { "id": "cavebot",       "label": "Cave Bot",        "script": "cavebot.js" },
+  { "id": "goldfarmbot",   "label": "Gold Farm Bot",   "script": "goldfarmbot.js" },
+  { "id": "homebot",       "label": "Home Bot",        "script": "homebot.js" },
+  { "id": "netherbot",     "label": "Nether Bot",      "script": "netherbot.js" },
+  { "id": "strongholdbot", "label": "Stronghold Bot",  "script": "strongholdbot.js" },
+  { "id": "xpfarmbot",     "label": "XP Farm Bot",     "script": "xpfarmbot.js" }
+]

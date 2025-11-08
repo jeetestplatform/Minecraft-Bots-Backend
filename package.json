@@ -1,0 +1,14 @@
+{
+  "dependencies": {
+    "minecrafthawkeye": "^1.3.9",
+    "mineflayer": "^4.27.0",
+    "mineflayer-armor-manager": "^2.0.1",
+    "mineflayer-auto-eat": "^5.0.0",
+    "mineflayer-collectblock": "^1.6.0",
+    "mineflayer-pathfinder": "^2.4.5",
+    "mineflayer-pvp": "^1.3.2",
+    "mineflayer-tool": "^1.2.0",
+    "node": "^22.15.0",
+    "vec3": "^0.1.10"
+  }
+}
