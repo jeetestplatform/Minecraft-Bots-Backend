@@ -1347,10 +1347,13 @@ bot.on('chat', async (username, message) => {
 
   // Gemini-powered natural language commands for MineBot only
   if (message.trim().startsWith('#')) {
+    // Interrupt current task instead of refusing
     if (getState('isProcessingCommand')) {
-      chat('Busy. Please wait or use "!stop mining".');
-      return;
+      await cancelAll('interrupt by new # command');
+      setState('isProcessingCommand', false);
+      await wait(150);
     }
+    setState('stopRequested', false);
     setState('isProcessingCommand', true);
     try {
       await handleAICommand(username, message.trim().slice(1).trim());
@@ -1359,16 +1362,15 @@ bot.on('chat', async (username, message) => {
       chat('Sorry, I could not understand that.');
     } finally {
       setState('isProcessingCommand', false);
+      setState('stopRequested', false);
     }
     return;
   }
 
   if (cmd === '!stop mining') {
-    setState('stopRequested', true);
-    bot.pathfinder.setGoal(null);
+    await cancelAll('user stop command');
     chat('Stopping all operations immediately!');
     logDebug('Global stop command executed');
-    Object.keys(botState).forEach(key => key.startsWith('is') && setState(key, false));
     return;
   }
 
@@ -1662,6 +1664,19 @@ async function handleAICommand(username, naturalText) {
     schema
   );
   await executePlan(username, plan);
+}
+
+async function cancelAll(reason = 'cancel') {
+  try {
+    logDebug('Cancelling tasks: ' + reason);
+    setState('stopRequested', true);
+    bot.pathfinder.setGoal(null);
+    // Clear all is* flags including processing lock
+    Object.keys(botState).forEach(key => key.startsWith('is') && setState(key, false));
+    await wait(100);
+  } catch (e) {
+    logDebug('Cancel error: ' + e.message);
+  }
 }
 
 // Deterministic NL -> plan parser (no hallucinations)
