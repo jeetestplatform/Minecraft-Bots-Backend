@@ -5,6 +5,10 @@ let bot = null;
 let temporaryLeaveInProgress = false;
 let reconnectAttempts = 0;
 const maxReconnectAttempts = 10;
+// AFK prevention interval handle
+let afkInterval = null;
+// tiny wait helper
+function wait(ms){ return new Promise(res => setTimeout(res, ms)); }
 
 // Function to create and connect bot
 function createAndConnectBot() {
@@ -44,6 +48,23 @@ function setupBotHandlers() {
       bot.setControlState('forward', false)
       console.log('Bot stopped moving.')
     }, 2000)
+
+    // Start periodic AFK prevention jiggle every 5 minutes
+    if (!afkInterval) {
+      const tap = async (dir, ms=300) => { try { bot.setControlState(dir, true); await wait(ms); bot.setControlState(dir, false); await wait(120); } catch (_) {} };
+      afkInterval = setInterval(async () => {
+        try {
+          // forward, back, right, left (~1 block each)
+          await tap('forward', 300);
+          await tap('back', 300);
+          await tap('right', 300);
+          await tap('left', 300);
+        } catch (e) {
+          console.log('AFK jiggle error:', e?.message || e);
+        }
+      }, 300000); // 5 minutes
+      console.log('AFK prevention interval started');
+    }
   })
 
   bot.on('chat', (username, message) => {
@@ -207,6 +228,8 @@ function setupBotHandlers() {
   })
 
   bot.on('end', (reason) => {
+    // Clear AFK interval on disconnect to avoid duplicates
+    if (afkInterval) { clearInterval(afkInterval); afkInterval = null; }
     // Only attempt normal reconnect if not in temporary leave mode
     if (!temporaryLeaveInProgress) {
       console.log('Bot disconnected. Reason:', reason)
