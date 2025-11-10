@@ -7,6 +7,8 @@ let reconnectAttempts = 0;
 const maxReconnectAttempts = 10;
 // AFK prevention interval handle
 let afkInterval = null;
+// Head rotation interval handle for AFK prevention
+let headRotationInterval = null;
 // tiny wait helper
 function wait(ms){ return new Promise(res => setTimeout(res, ms)); }
 
@@ -64,6 +66,38 @@ function setupBotHandlers() {
         }
       }, 300000); // 5 minutes
       console.log('AFK prevention interval started');
+    }
+
+    // Start periodic head rotation every 1 minute to prevent AFK detection
+    if (!headRotationInterval) {
+      headRotationInterval = setInterval(async () => {
+        try {
+          const currentYaw = bot.entity.yaw;
+          const currentPitch = bot.entity.pitch;
+          
+          // Look left
+          await bot.look(currentYaw + Math.PI / 2, currentPitch, true);
+          await wait(250);
+          
+          // Look right
+          await bot.look(currentYaw - Math.PI / 2, currentPitch, true);
+          await wait(250);
+          
+          // Look up
+          await bot.look(currentYaw, -Math.PI / 4, true);
+          await wait(250);
+          
+          // Look down
+          await bot.look(currentYaw, Math.PI / 4, true);
+          await wait(250);
+          
+          // Return to original position
+          await bot.look(currentYaw, currentPitch, true);
+        } catch (e) {
+          console.log('Head rotation error:', e?.message || e);
+        }
+      }, 60000); // 1 minute
+      console.log('Head rotation interval started');
     }
   })
 
@@ -228,8 +262,9 @@ function setupBotHandlers() {
   })
 
   bot.on('end', (reason) => {
-    // Clear AFK interval on disconnect to avoid duplicates
+    // Clear AFK intervals on disconnect to avoid duplicates
     if (afkInterval) { clearInterval(afkInterval); afkInterval = null; }
+     if (headRotationInterval) { clearInterval(headRotationInterval); headRotationInterval = null; }
     // Only attempt normal reconnect if not in temporary leave mode
     if (!temporaryLeaveInProgress) {
       console.log('Bot disconnected. Reason:', reason)
