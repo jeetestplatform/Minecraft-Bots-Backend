@@ -4,7 +4,7 @@ const mineflayer = require('mineflayer')
 let bot = null;
 let temporaryLeaveInProgress = false;
 let reconnectAttempts = 0;
-const maxReconnectAttempts = 10;
+const maxReconnectAttempts = Infinity; // keep trying to reconnect
 // AFK prevention interval handle
 let afkInterval = null;
 // Head rotation interval handle for AFK prevention
@@ -16,7 +16,7 @@ function wait(ms){ return new Promise(res => setTimeout(res, ms)); }
 function createAndConnectBot() {
   bot = mineflayer.createBot({
     host: 'iitpkunofficial.aternos.me',
-    port: 27449,
+    // Do not set a fixed port; allow SRV lookup to handle dynamic ports
     username: 'HomeBot',
     version: '1.21.8'
   });
@@ -126,6 +126,8 @@ function setupBotHandlers() {
         setTimeout(() => {
           if (temporaryLeaveInProgress) {
             console.log('Rejoining server after temporary leave...');
+            // Clear the flag so normal reconnect logic applies if this reconnect fails
+            temporaryLeaveInProgress = false;
             createAndConnectBot();
           }
         }, 10000);
@@ -275,8 +277,11 @@ function setupBotHandlers() {
           createAndConnectBot();
         }, 5000)
       } else {
-        console.log('Max reconnect attempts reached. Stopping bot.');
-        process.exit(1); // Exit gracefully
+        // With Infinity max attempts, we should never hit this branch; keep as a safeguard
+        console.log('Max reconnect attempts reached. Continuing to retry...');
+        setTimeout(() => {
+          createAndConnectBot();
+        }, 10000)
       }
     } else {
       console.log('Bot disconnected for temporary leave. Waiting to rejoin...');
