@@ -62,7 +62,7 @@ let reconnectAttempts = 0;         // Counter for reconnection attempts
 const MAX_RECONNECT_ATTEMPTS = 15; // Increased max attempts
 let miningTask = null;             // Current mining task coordinates
 let miningQueue = [];              // Queue of blocks to mine
-const REACH_DISTANCE = 5;          // Maximum reach distance for mining (blocks)
+const REACH_DISTANCE = 4.2;          // Maximum reach distance for mining (blocks)
 let pathfinderInitialized = false; // Tracks if pathfinder is initialized
 let lastProgressUpdate = 0;        // Timestamp of last progress update
 let lastFoodReport = {             // Tracks collected food items
@@ -188,78 +188,75 @@ function getBestPickaxe() {
  * @returns {Object|null} Best tool for the block or null if none
  */
 function getBestTool(blockType) {
-  const efficiencyMap = {
-    // Blocks best mined with shovels (fastest)
-    shovel: [
-      'dirt', 'grass_block', 'podzol', 'mycelium', 'soul_sand', 'soul_soil',
-      'sand', 'red_sand', 'gravel', 'clay', 'snow', 'snow_block', 'farmland',
-      'mud', 'mud_block'
-    ],
-    // Blocks best mined with pickaxes (fastest)
-    pickaxe: [
-      'stone', 'cobblestone', 'granite', 'diorite', 'andesite', 'deepslate',
-      'ore', 'coal_ore', 'iron_ore', 'gold_ore', 'diamond_ore', 'emerald_ore',
-      'redstone_ore', 'lapis_ore', 'copper_ore', 'quartz_ore', 'ancient_debris',
-      'obsidian', 'crying_obsidian', 'netherrack', 'basalt', 'blackstone',
-      'end_stone', 'brick', 'terracotta', 'concrete'
-    ],
-    // Blocks best mined with hoes (fastest)
-    hoe: [
-      'hay_block', 'sponge', 'wet_sponge', 'leaves', 'vine', 'nether_wart_block',
-      'warped_wart_block', 'shroomlight'
-    ]
-  };
+  const t = String(blockType || '').toLowerCase();
+
+  // Categories
+  const pickaxeBlocks = [
+    'stone', 'cobblestone', 'granite', 'diorite', 'andesite', 'deepslate',
+    'ore', 'coal_ore', 'iron_ore', 'gold_ore', 'diamond_ore', 'emerald_ore',
+    'redstone_ore', 'lapis_ore', 'copper_ore', 'quartz_ore', 'ancient_debris',
+    'obsidian', 'crying_obsidian', 'netherrack', 'basalt', 'blackstone',
+    'end_stone', 'brick', 'terracotta', 'concrete'
+  ];
+  const shovelBlocks = [
+    'dirt', 'grass_block', 'podzol', 'mycelium', 'soul_sand', 'soul_soil',
+    'sand', 'red_sand', 'gravel', 'clay', 'snow', 'snow_block', 'farmland',
+    'mud', 'mud_block'
+  ];
+  const axeBlocks = [
+    'log', 'oak_log', 'birch_log', 'spruce_log', 'jungle_log', 'acacia_log', 'dark_oak_log', 'mangrove_log', 'cherry_log',
+    'wood', 'planks', 'crafting_table', 'bookshelf', 'pumpkin', 'melon'
+  ];
 
   try {
     const inventory = bot.inventory.items();
 
-    // Check which tool category is most efficient for this block
-    let toolCategory = 'pickaxe'; // Default to pickaxe if no match
-    if (efficiencyMap.shovel.some(type => blockType.includes(type))) {
-      toolCategory = 'shovel';
-    } else if (efficiencyMap.hoe.some(type => blockType.includes(type))) {
-      toolCategory = 'hoe';
-    }
-
-    // Define priority lists for each tool type
-    const toolPriorities = {
-      pickaxe: [
-        'netherite_pickaxe', 'diamond_pickaxe', 'iron_pickaxe',
-        'stone_pickaxe', 'wooden_pickaxe', 'golden_pickaxe'
-      ],
-      shovel: [
-        'netherite_shovel', 'diamond_shovel', 'iron_shovel',
-        'stone_shovel', 'wooden_shovel', 'golden_shovel'
-      ],
-      hoe: [
-        'netherite_hoe', 'diamond_hoe', 'iron_hoe',
-        'stone_hoe', 'wooden_hoe', 'golden_hoe'
-      ]
-    };
-
-    // Find the best tool in the inventory for the determined category
-    for (const toolName of toolPriorities[toolCategory]) {
-      const tool = inventory.find(item => item.name === toolName);
-      if (tool) {
-        logDebug(`Found efficient ${toolCategory} for ${blockType}: ${tool.name}`);
-        return tool;
+    // Prefer shears for leaves if present
+    if (t.includes('leaves')) {
+      const shears = inventory.find(it => it.name === 'shears');
+      if (shears) {
+        logDebug(`Using shears for ${blockType}`);
+        return shears;
       }
     }
 
-    // If no specific tool is found, fall back to any available tool
-    for (const category in toolPriorities) {
-      for (const toolName of toolPriorities[category]) {
-        const fallbackTool = inventory.find(item => item.name === toolName);
-        if (fallbackTool) {
-          logDebug(`No optimal tool found, falling back to: ${fallbackTool.name}`);
-          return fallbackTool;
-        }
+    // Axe targets
+    if (axeBlocks.some(type => t.includes(type))) {
+      const axePriority = ['netherite_axe','diamond_axe','iron_axe','stone_axe','wooden_axe','golden_axe'];
+      for (const name of axePriority) {
+        const axe = inventory.find(it => it.name === name);
+        if (axe) return axe;
       }
+      logDebug(`No axe found for ${blockType}`);
     }
 
-    logDebug(`No tools found for ${blockType}, requesting tools`);
+    // Pickaxe targets
+    if (pickaxeBlocks.some(type => t.includes(type))) {
+      const pick = getBestPickaxe();
+      if (pick) return pick;
+    }
+
+    // Shovel targets
+    if (shovelBlocks.some(type => t.includes(type))) {
+      const shovelPriority = ['netherite_shovel','diamond_shovel','iron_shovel','stone_shovel','wooden_shovel','golden_shovel'];
+      for (const name of shovelPriority) {
+        const shovel = inventory.find(it => it.name === name);
+        if (shovel) return shovel;
+      }
+      const pick = getBestPickaxe();
+      if (pick) return pick;
+    }
+
+    // Fallbacks
+    const anyAxe = inventory.find(i => /_axe$/.test(i.name));
+    if (anyAxe) return anyAxe;
+    const anyPick = getBestPickaxe();
+    if (anyPick) return anyPick;
+    const anyShovel = inventory.find(i => /_shovel$/.test(i.name));
+    if (anyShovel) return anyShovel;
+
+    logDebug(`No suitable tool found for ${blockType}`);
     return null;
-
   } catch (err) {
     logDebug('Tool selection error: ' + err.message);
     return null;
@@ -305,15 +302,25 @@ async function equipBestToolOrWeapon(type) {
     await requestTools(type);
     return false;
   }
+  return equipItemInHand(item, `${type}`);
+}
 
+async function equipItemInHand(item, label = 'item') {
   try {
     await bot.equip(item, 'hand');
-    logDebug(`Successfully equipped ${type}: ${item.name}`);
+    logDebug(`Equipped ${label}: ${item.name}`);
     return true;
   } catch (err) {
-    logDebug(`Error equipping ${type}: ${err.message}`);
-    await wait(1000); // Increased wait time
-    return await equipBestToolOrWeapon(type); // Retry with longer delay
+    logDebug(`Error equipping ${label}: ${err.message}`);
+    await wait(500);
+    try {
+      await bot.equip(item, 'hand');
+      logDebug(`Equipped ${label} on retry: ${item.name}`);
+      return true;
+    } catch (e2) {
+      logDebug(`Failed to equip ${label} after retry: ${e2.message}`);
+      return false;
+    }
   }
 }
 
@@ -324,10 +331,12 @@ async function equipBestToolOrWeapon(type) {
 function checkTools() {
   try {
     const inventory = bot.inventory.items();
-    const hasTools = inventory.some(item => 
-      item.name.includes('pickaxe') || 
-      item.name.includes('shovel') || 
-      item.name.includes('hoe')
+    const hasTools = inventory.some(item =>
+      item.name.includes('pickaxe') ||
+      item.name.includes('shovel') ||
+      item.name.includes('hoe') ||
+      item.name.includes('axe') ||
+      item.name === 'shears'
     );
     logDebug(`Tool check: ${hasTools ? 'Tools available' : 'No tools found'}`);
     return hasTools;
@@ -401,10 +410,14 @@ function setupPathfinder() {
     movements.allowFreeMotion = true;     // Allows free movement in open areas
     movements.maxDropDown = 4;            // Allows safe drops up to 4 blocks
 
-    // Adds available scaffolding blocks from inventory
-    movements.scafoldingBlocks = bot.inventory.items().filter(item =>
-      ['dirt', 'cobblestone', 'stone', 'sand'].includes(item.name)
-    );
+    // Adds available scaffolding blocks from inventory (block IDs, not items)
+    const invScaf = bot.inventory.items()
+      .filter(i => ['dirt', 'cobblestone', 'stone'].includes(i.name))
+      .map(i => i.type);
+    movements.scaffoldingBlocks = invScaf.length ? invScaf : [
+      bot.registry.blocksByName.dirt?.id,
+      bot.registry.blocksByName.cobblestone?.id
+    ].filter(Boolean);
 
     bot.pathfinder.setMovements(movements);
     pathfinderInitialized = true;
@@ -423,6 +436,8 @@ function setupPathfinder() {
  * @returns {Promise<boolean>} True if position reached, false otherwise
  */
 async function goToPosition(position, options = {}) {
+  if (!pathfinderInitialized) setupPathfinder();
+  
   const maxRetries = options.maxRetries || 5;
   const range = options.range || 2;
   let retries = 0;
@@ -435,6 +450,11 @@ async function goToPosition(position, options = {}) {
       logDebug('Successfully reached target position');
       return true;
     } catch (err) {
+      if (/GoalChanged|PathStopped/i.test(err.message)) {
+        logDebug('Navigation canceled by another goal');
+        return false;
+      }
+      
       retries++;
       logDebug(`Navigation attempt ${retries} failed: ${err.message}`);
 
@@ -443,9 +463,8 @@ async function goToPosition(position, options = {}) {
         await handleNavigationObstacle(position);
         await wait(1000);
       } else {
-        logDebug('Maximum retries reached, attempting recovery');
-        const recovered = await handleFallRecovery();
-        return recovered;
+        logDebug('Maximum retries reached for navigation');
+        return false;
       }
     }
   }
@@ -464,9 +483,9 @@ async function handleNavigationObstacle(targetPos) {
     const jumpPos = currentPos.plus(direction.scaled(2)).setY(currentPos.y + 1.6);
 
     logDebug('Attempting to jump over obstacle');
-    await bot.setControlState('jump', true);
+    bot.setControlState('jump', true);
     await wait(200);
-    await bot.setControlState('jump', false);
+    bot.setControlState('jump', false);
     await goToPosition(jumpPos, { range: 1, maxRetries: 2 });
 
     const blockBelow = bot.blockAt(currentPos.offset(0, -1, 0));
@@ -600,22 +619,13 @@ async function mineBlock(position) {
     return true;
   }
 
-  if (!await ensureTools('tool')) {
-    chat('Cannot mine without tools!');
-    logDebug('Mining aborted due to lack of tools');
-    return false;
-  }
-
   const distance = distanceTo(bot.entity.position, position);
   if (distance > REACH_DISTANCE) {
     logDebug(`Block at (${position.x}, ${position.y}, ${position.z}) out of reach: ${distance} blocks`);
-    const approachPos = position.offset(
-      Math.sign(position.x - bot.entity.position.x),
-      0,
-      Math.sign(position.z - bot.entity.position.z)
-    );
-    if (!await goToPosition(approachPos, { range: 1, maxRetries: 4 })) {
-      logDebug('Failed to approach block for mining');
+    const nearRange = Math.max(1, Math.floor(REACH_DISTANCE - 1));
+    const reached = await goToPosition(position, { range: nearRange, maxRetries: 4 });
+    if (!reached || distanceTo(bot.entity.position, position) > REACH_DISTANCE) {
+      logDebug('Failed to get within reach of block');
       return false;
     }
   }
@@ -628,7 +638,8 @@ async function mineBlock(position) {
       return false;
     }
 
-    await equipBestToolOrWeapon('tool');
+    const equipped = await equipItemInHand(tool, 'tool');
+    if (!equipped) return false;
     await bot.lookAt(position.plus(new Vec3(0.5, 0.5, 0.5)));
 
     logDebug(`Mining ${block.name} at (${position.x}, ${position.y}, ${position.z}) with ${tool.name}`);
@@ -678,7 +689,7 @@ async function collectNearbyItems() {
       }
 
       logDebug(`Collecting item at (${item.position.x.toFixed(2)}, ${item.position.y.toFixed(2)}, ${item.position.z.toFixed(2)})`);
-      const success = await goToPosition(item.position, { range: 1, maxRetries: 3 });
+      const success = await goToPosition(item.position.floored(), { range: 1, maxRetries: 3 });
       if (success) {
         await wait(300); // Wait for item pickup
         logDebug(`Collected item at (${item.position.x}, ${item.position.y}, ${item.position.z})`);
@@ -909,6 +920,10 @@ async function dealWithMobs() {
     } else {
       chat('Combat done, but couldn’t return to original spot.');
       logDebug('Failed to return after combat');
+      if (miningTask) {
+        logDebug('Falling back to mining area center after combat');
+        await navigateToMiningArea();
+      }
     }
   } catch (err) {
     logDebug('Combat handling error: ' + err.message);
@@ -1234,10 +1249,29 @@ async function dropExcessItems() {
  */
 bot.on('spawn', () => {
   logDebug('Bot spawned into the world');
+  pathfinderInitialized = false;
   setupPathfinder();
   chat('Spawned and ready to dominate!');
   chat('Commands: "!mine x1 y1 z1 x2 y2 z2", "!collect food", "!stop collect food", "!mine coal", "!stop mine coal", "!mine iron", "!stop mine iron", "!stop mining", "!drop inventory"');
   chat('Extras: "hey mine bot, tp me", "minebot teleport here", "where are you"');
+});
+
+bot.on('respawn', () => {
+  logDebug('Bot respawned');
+  pathfinderInitialized = false;
+  setupPathfinder();
+});
+
+bot.on('death', () => {
+  logDebug('Bot died');
+  pathfinderInitialized = false;
+});
+
+bot.on('playerCollect', (collector) => {
+  if (collector === bot.entity) {
+    pathfinderInitialized = false;
+    setupPathfinder();
+  }
 });
 
 /**
@@ -1253,10 +1287,11 @@ bot.on('physicsTick', () => {
       handleFallRecovery().catch(err => logDebug('Fall recovery error: ' + err.message));
     }
 
-    // Periodic mob check
+    // Periodic mob check (but not during area mining as it handles its own combat)
     if (++mobCheckCounter >= MOB_CHECK_FREQUENCY) {
       mobCheckCounter = 0;
-      if (!getState('isInCombat') && (getState('isMining') || getState('isCollectingFood') || getState('isMiningCoal') || getState('isMiningIron'))) {
+      if (!getState('isInCombat') && !getState('isMining') && 
+          (getState('isCollectingFood') || getState('isMiningCoal') || getState('isMiningIron'))) {
         const mobs = Object.values(bot.entities).filter(entity =>
           entity.type === 'mob' &&
           ['zombie', 'skeleton', 'spider', 'creeper', 'enderman', 'witch', 'slime', 'cave_spider', 'silverfish'].includes(entity.name) &&
@@ -1385,6 +1420,13 @@ bot.on('chat', async (username, message) => {
   try {
     if (cmd.startsWith('!mine ') && !cmd.includes('coal') && !cmd.includes('iron')) {
       logDebug('Processing area mining command');
+      // If something else is running, interrupt it so this command always takes priority
+      if (getState('isProcessingCommand')) {
+        await cancelAll('interrupt by new !mine command');
+        setState('isProcessingCommand', false);
+        await wait(100);
+      }
+      setState('stopRequested', false);
       const coords = cmd.split(' ').slice(1).map(Number);
       if (coords.length === 6 && coords.every(n => !isNaN(n))) {
         const [x1, y1, z1, x2, y2, z2] = coords;
@@ -1804,19 +1846,46 @@ function parseCommandToPlan(natural, requester) {
 }
 
 // Helpers used by AI executor
-async function findBlocksByName(name, maxCount = 50) {
+function isLiquidBlock(b) {
+  const n = b?.name || '';
+  return n === 'water' || n === 'lava';
+}
+
+function isNearLiquid(pos) {
+  try {
+    const neigh = [
+      pos, pos.offset(1,0,0), pos.offset(-1,0,0), pos.offset(0,1,0), pos.offset(0,-1,0), pos.offset(0,0,1), pos.offset(0,0,-1)
+    ];
+    for (const p of neigh) {
+      const b = bot.blockAt(p);
+      if (isLiquidBlock(b)) return true;
+    }
+    return false;
+  } catch { return false; }
+}
+
+async function findBlocksByName(name, maxCount = 50, opts = {}) {
   const blocks = [];
   const start = bot.entity.position.clone();
+  const maxRadius = Math.max(4, Math.min(Number(opts.maxRadius ?? 32), SEARCH_RADIUS));
+  const maxYDelta = Math.max(2, Math.min(Number(opts.maxVerticalDelta ?? 12), SEARCH_RADIUS));
+  const avoidWater = opts.avoidWater !== false; // default true
+  const step = Math.max(1, Number(opts.step ?? 2));
   try {
-    for (let x = -SEARCH_RADIUS; x <= SEARCH_RADIUS; x += 3) {
-      for (let y = -Math.floor(SEARCH_RADIUS / 2); y <= Math.floor(SEARCH_RADIUS / 2); y += 3) {
-        for (let z = -SEARCH_RADIUS; z <= SEARCH_RADIUS; z += 3) {
+    for (let x = -maxRadius; x <= maxRadius; x += step) {
+      for (let y = -maxYDelta; y <= maxYDelta; y += step) {
+        for (let z = -maxRadius; z <= maxRadius; z += step) {
           if (blocks.length >= maxCount) break;
           const pos = start.offset(x, y, z);
+          const dist = distanceTo(start, pos);
+          if (dist > maxRadius + 0.01) continue;
           const b = bot.blockAt(pos);
-          if (b && b.name && b.name.includes(name) && b.diggable && !['air','water','lava'].includes(b.name)) {
-            blocks.push(b);
-          }
+          if (!b || !b.name) continue;
+          if (!b.diggable) continue;
+          if (b.name.includes('air')) continue;
+          if (!b.name.includes(name)) continue;
+          if (avoidWater && isNearLiquid(pos)) continue;
+          blocks.push(b);
         }
       }
     }
@@ -1872,14 +1941,23 @@ async function runBlockMiningFor(blockName, seconds) {
   try {
     setupPathfinder();
     const until = Date.now() + seconds * 1000;
+    const searchBands = [
+      { maxRadius: 24, maxVerticalDelta: 10 },
+      { maxRadius: 36, maxVerticalDelta: 14 },
+      { maxRadius: 48, maxVerticalDelta: 18 }
+    ];
     while (Date.now() < until && !getState('stopRequested')) {
-      const found = await findBlocksByName(blockName, 30);
+      let found = [];
+      for (const band of searchBands) {
+        found = await findBlocksByName(blockName, 40, { ...band, avoidWater: true, step: 2 });
+        if (found.length) break;
+      }
       if (found.length === 0) {
-        // random explore small offset if none found
-        const rnd = new Vec3(Math.random()*20-10, 0, Math.random()*20-10);
+        // controlled small explore if none found nearby (avoid large travel)
+        const rnd = new Vec3(Math.random()*12-6, 0, Math.random()*12-6);
         const explore = bot.entity.position.clone().add(rnd); explore.y = bot.entity.position.y;
-        await goToPosition(explore, { range: 5, maxRetries: 3 });
-        await wait(500);
+        await goToPosition(explore, { range: 5, maxRetries: 2 });
+        await wait(400);
         continue;
       }
       // Take nearest block and mine the entire connected cluster before moving on
@@ -1890,7 +1968,7 @@ async function runBlockMiningFor(blockName, seconds) {
       let minedCount = 0;
       for (const pos of cluster) {
         if (Date.now() >= until || getState('stopRequested')) break;
-        const reached = await goToPosition(pos, { range: 3, maxRetries: 4 });
+        const reached = await goToPosition(pos, { range: 2, maxRetries: 4 });
         if (!reached) continue;
         const ok = await mineBlock(pos);
         if (ok) minedCount++;

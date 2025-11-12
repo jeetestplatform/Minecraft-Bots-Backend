@@ -163,7 +163,7 @@ function setupBotHandlers() {
       bot.chat('/tpcancel');
       console.log('Sent /tpcancel to clear existing request');
     } else {
-      console.log(`No match. Expected commands: "hey homebot, tp me", "cavebot teleport here", "teleport me to cave", or "hey homebot, tp vikram". Got: "${normalizedMessage}"`);
+      console.log(`No match. Expected commands: "cavebot teleport here", "teleport me to cave", or "hey homebot, tp vikram". Got: "${normalizedMessage}"`);
     }
   })
 
